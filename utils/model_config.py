@@ -8,7 +8,7 @@ This file load model as per user config.
 from typing import Callable
 
 from utils.logger import return_logger
-from models.GraphVSum.story_sum import StorySum
+from models.GraphVsum.story_sum import StorySum
 # from models.published_baselines.msva_model import MSVA_adapted
 # from models.published_baselines.pgl_sum_model import PGL_Sum_Adapted
 
@@ -53,7 +53,7 @@ def get_model(config: dict)->Callable:
                 "max_pos_enc_len": config["max_pos_enc_len"]}
         
         # loading the model
-        model = GraphVSum(**kwargs)
+        model = StorySum(**kwargs)
         if config['verbose']:
             if config["modality"] == "vid":
                 if config["enable_decoder"]:

@@ -12,9 +12,9 @@ import torch.nn as nn
 import dgl.nn.pytorch as dglnn
 from typing import List, Optional
 from torch.nn import functional as F
-from models.graphvsum.positional_encoding import PositionalEncoding
-from models.graphvsum.custom_encoder import CustomTransformerEncoder, _get_activation
-from models.graphvsum.custom_transformer import TransformerEncoderLayer
+from models.GraphVsum.positional_encoding import PositionalEncoding
+from models.GraphVsum.custom_encoder import CustomTransformerEncoder, _get_activation
+from models.GraphVsum.custom_transformer import TransformerEncoderLayer
 from dataloader.multimodal_dataset import load_graph
 
 
@@ -315,8 +315,8 @@ class decoder(nn.Module):
             vd_feat = torch.cat([vd_feat, torch.zeros(1, max_vd_num - vd_feat.shape[1], self.d_model).to(device)], dim = 1)
             batch_feats = torch.cat([batch_feats, vd_feat], dim = 0)
             
-            video_time = time_idx[i][token_type_ids[i] == torch.tensor(0)].squeeze(0)
-            dia_time = time_idx[i][token_type_ids[i] == torch.tensor(1)].squeeze(0)
+            video_time = time_idx[i][token_type_ids[i] == torch.tensor(0, device=device)].reshape(-1)
+            dia_time = time_idx[i][token_type_ids[i] == torch.tensor(1, device=device)].reshape(-1)
             vd_time = torch.cat([video_time, dia_time])
             vd_time = torch.cat([vd_time, torch.zeros(max_vd_num - vd_time.shape[0]).to(device)]).unsqueeze(0)
             vd_times = torch.cat([vd_times, vd_time], dim = 0)
@@ -330,6 +330,7 @@ class decoder(nn.Module):
             graph_label['dia'] = dia_targets[i][dia_boolean_mask[i]]
             graph_label['video'] = vid_targets[i][vid_boolean_mask[i]]
             hetero_graph, dv_time_align, density = load_graph(video_name[i], edge_dict, graph_label)
+            hetero_graph = hetero_graph.to(device)
             hetero_graphs.append(hetero_graph)
             graph_densitys.append(density)
             dv_time_align_list.append(dv_time_align.to(device))
@@ -401,7 +402,7 @@ class decoder(nn.Module):
             vid_feat = vid_feats[i][vid_boolean_mask[i]].unsqueeze(0)
             graph_dia_feat = batch_tfd_feats[i:i+1][:,:dia_feat.shape[1],:]
             graph_vid_feat = batch_tfv_feats[i:i+1][:,:vid_feat.shape[1],:]
-            node_embs.append({'dia': graph_dia_feat, 'video':graph_vid_feat})
+            node_embs.append({'dia': graph_dia_feat.squeeze(0), 'video': graph_vid_feat.squeeze(0)})
 
 
 

@@ -11,7 +11,7 @@ import torch.nn as nn
 import copy
 from torch import Tensor
 from typing import Optional
-from models.graphvsum.custom_transformer import TransformerEncoderLayer
+from models.GraphVsum.custom_transformer import TransformerEncoderLayer
 
 def _get_activation(activation: str) -> nn.Module:
     r"""

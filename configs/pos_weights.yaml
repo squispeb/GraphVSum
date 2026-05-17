@@ -1,0 +1,6 @@
+# @package _global_
+
+# Computed from BLiSS train.json as negative_labels / positive_labels.
+bliss_vid: 28.908005299191224
+bliss_dia: 11.162302337374948
+bliss_both: 23.82058246267917

@@ -10,6 +10,7 @@ Usage:
 
 import os
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:64'
+import json
 import wandb
 import yaml
 import copy
@@ -101,7 +102,8 @@ class Trainer(object):
         if cfg['mode'] == 'training':
             # https://www.fast.ai/posts/2018-07-02-adam-weight-decay.html
             self.optimizer = optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"], amsgrad=cfg["amsgrad"])
-            total_steps = int(np.ceil(len(cfg['train'])/cfg['batch_size'])*cfg['epochs'])
+            train_size = cfg.get('train_size', len(cfg['train']))
+            total_steps = int(np.ceil(train_size/cfg['batch_size'])*cfg['epochs'])
             if cfg['lr_scheduler'] == 'onecycle':
                 self.scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=10*cfg['lr'], total_steps=total_steps)
             elif cfg['lr_scheduler'] == 'cyclic':
@@ -177,6 +179,17 @@ class Trainer(object):
         Returns:
             - dl (Dataloader): A pytorch dataloader object.
         """
+        if self.cfg.get('dataset') == 'bliss':
+            dataset = MultiModalDataset.from_bliss(
+                annotation_path=self.cfg[f'{mode}_annotation'],
+                video_feature_path=self.cfg[f'{mode}_video_feature'],
+                text_feature_path=self.cfg[f'{mode}_text_feature'],
+                max_cap=self.cfg['max_cap'],
+                modality=self.modality,
+            )
+            return DataLoader(dataset, batch_size=self.cfg['batch_size'], shuffle=(mode == 'train'),
+                              collate_fn=dataset.collate_fn, num_workers=self.cfg['num-workers'])
+
         sampling_type = self.cfg['sampling_type']
         if sampling_type == "random" and mode in ["val", "test"]:
             sampling_type = "uniform"
@@ -407,9 +420,16 @@ class Trainer(object):
                 vid_loss, vid_yhat_lst, vid_target_lst = \
                     self.calc_loss(yhat, vid_boolean_mask, vid_targets, vid_boolean_mask)
 
+        if self.modality != "vid":
+            dia_loss, dia_yhat_lst, dia_target_lst = \
+                self.calc_loss(dia_yhat, dia_boolean_mask, dia_targets, dia_boolean_mask)
 
-
-        loss = vid_loss + dia_loss
+        if self.modality == "both":
+            loss = vid_loss + dia_loss
+        elif self.modality == "vid":
+            loss = vid_loss
+        else:
+            loss = dia_loss
 
         if alignment_ref != None:
 
@@ -580,6 +600,28 @@ def main(config: DictConfig):
     # =================================== TRAINER CONFIG ===================================
     if isinstance(config['hidden_sizes'], str) and config['hidden_sizes'] == 'd_model':
         config['hidden_sizes'] = [config['d_model']]
+    if config.get('dataset') == 'bliss':
+        with open(config.train_annotation, 'r') as f:
+            train_size = len(json.load(f))
+        with open_dict(config):
+            config.train_annotation = config.train_annotation
+            config.val_annotation = config.test_annotation
+            config.test_annotation = config.test_annotation
+            config.train_video_feature = config.train_video_feature
+            config.val_video_feature = config.test_video_feature
+            config.test_video_feature = config.test_video_feature
+            config.train_text_feature = config.train_text_feature
+            config.val_text_feature = config.test_text_feature
+            config.test_text_feature = config.test_text_feature
+            config.train = [config.train_annotation]
+            config.val = [config.val_annotation]
+            config.test = [config.test_annotation]
+            config.train_size = train_size
+        trainer = Trainer(config)
+        trainer.train()
+        del trainer
+        return
+
     # ======================== parse the episode config ========================
     split_type_path = os.path.join(config["split_dir"], config["split_type"])
     # logger.info(f"Split type: {config['split_type']} at {split_type_path}")
@@ -626,7 +668,8 @@ class calc_loss_class(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         modality = cfg['modality']
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to('cuda'))
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to(device))
 
 
     def forward(self, yhat: torch.Tensor, yhat_mask: torch.Tensor,

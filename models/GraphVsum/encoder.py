@@ -9,9 +9,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Tuple, Optional
-from models.graphvsum.positional_encoding import PositionalEncoding
-from models.graphvsum.custom_transformer import TransformerEncoderLayer
-from models.graphvsum.custom_encoder import _get_activation
+from models.GraphVsum.positional_encoding import PositionalEncoding
+from models.GraphVsum.custom_transformer import TransformerEncoderLayer
+from models.GraphVsum.custom_encoder import _get_activation
 
 
 class mlp_enc(nn.Module):

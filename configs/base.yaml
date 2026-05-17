@@ -1,0 +1,17 @@
+# @package _global_
+
+dataset: bliss
+data_path: /home/sebastian.quispe/datasets/BLiSS
+annotation_dir: ${data_path}/annotation
+feature_dir: ${data_path}/feature
+ckpt_path: /home/sebastian.quispe/GraphVSum/checkpoints
+
+train_annotation: ${annotation_dir}/train.json
+test_annotation: ${annotation_dir}/test.json
+train_video_feature: ${feature_dir}/video_clip_train.npy
+test_video_feature: ${feature_dir}/video_clip_test.npy
+train_text_feature: ${feature_dir}/text_roberta_train.npy
+test_text_feature: ${feature_dir}/text_roberta_test.npy
+
+# Retained for non-BLiSS code paths. BLiSS bypasses ParseEPS in trainer.py.
+split_dir: ${annotation_dir}

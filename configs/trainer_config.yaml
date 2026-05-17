@@ -4,7 +4,7 @@ defaults:
     - pos_weights
     - _self_
 
-series: 'all' # 'prison-break', or can put 'all' if you want to run all series
+series: bliss
 
 # cross-series.yaml, intra-loocv, inter-loocv, multiple-label-split.yaml,
 # fandom-split.yaml, final-split.yaml (this is for final ckpt to be tested in real world)
@@ -40,7 +40,7 @@ modality: both
 max_cap: 25 # Maximum number of frames per shot 
 concatenation: True
 feat_fusion_style: simple # concat, simple, stack
-which_features: ['imagenet','mvit','clip']
+which_features: ['clip']
 vary_window_size: False
 window_size: 20
 scene_boundary_threshold: 0.7
@@ -81,7 +81,7 @@ hidden_sizes: d_model # if d_model instead of empty list -> 2*Lin(d_model, d_mod
 # -------------------------
 # finetuned-name: mpnet-base, roberta-large, pegasus-large
 # non-finetuned: all-mpnet-base-v2, fb-roberta-large, all-MiniLM-L6-v2
-which_dia_model: roberta-large
+which_dia_model: all-mpnet-base-v2
 
 #-------------------------- Others -------------------------
 pool_location: -1 # 0: beginning, -1: end
@@ -103,4 +103,3 @@ wandb:
     sweeps: False
     sweep_id: ""
     sweep_agent_run_count: 0
-

@@ -16,7 +16,7 @@ from torch.overrides import has_torch_function, handle_torch_function
 
 from torch.nn.init import constant_, xavier_normal_, xavier_uniform_
 from torch.nn.parameter import Parameter
-from models.graphvsum.transformer_dependencies import (_mha_shape_check, _in_projection_packed,
+from models.GraphVsum.transformer_dependencies import (_mha_shape_check, _in_projection_packed,
                                                       _in_projection, _get_activation_fn,
                                                       NonDynamicallyQuantizableLinear)
 from torch.nn import Module, Dropout, Linear, LayerNorm

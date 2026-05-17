@@ -9,9 +9,9 @@ import torch
 import torch.nn as nn
 
 from typing import List, Optional, Dict
-from models.graphvsum.custom_encoder import _get_activation
-from models.graphvsum.encoder import *
-from models.graphvsum.decoder import decoder
+from models.GraphVsum.custom_encoder import _get_activation
+from models.GraphVsum.encoder import *
+from models.GraphVsum.decoder import decoder
 
 class StorySum(nn.Module):
     r"""
