@@ -1,0 +1,5 @@
+# Direct split names consumed by dataloader/multimodal_dataset.py.
+train: ["train"]
+val: ["test"]
+test: ["test"]
+human: ["test"]

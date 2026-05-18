@@ -1,0 +1,4 @@
+# @package _global_
+data_path: "./data"
+ckpt_path: "./checkpoints"
+split_dir: "configs"
