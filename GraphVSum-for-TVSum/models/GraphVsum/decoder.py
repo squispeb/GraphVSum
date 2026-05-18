@@ -151,6 +151,10 @@ class decoder(nn.Module):
                  differential_attention: bool = False,
                  differential_attention_type: str = 'basic',
                  max_groups: int = 100,
+                 shot_constraint: bool = False,
+                 target_graph_density: Optional[float] = None,
+                 zeta_v: float = 0.95,
+                 zeta_t: float = 0.97,
                  max_pos_enc_len: int = 4000,
                  num_layers: int = 6,
                  drop_vid: float = 0.1,
@@ -227,6 +231,10 @@ class decoder(nn.Module):
         self.attention_type = attention_type
         self.differential_attention = differential_attention
         self.differential_attention_type = differential_attention_type
+        self.shot_constraint = shot_constraint
+        self.target_graph_density = target_graph_density
+        self.zeta_v = zeta_v
+        self.zeta_t = zeta_t
         # Group type embeddings
         # NOTE: If you want different initializations for each [GROUP] token
         # then you can use another `nn.Embedding` with `num_embeddings=max_groups`.
@@ -289,6 +297,74 @@ class decoder(nn.Module):
 
         device = mask.device
         batch_len, seq_len = mask.shape
+
+        if self.modality == "vid":
+            video_num_count = torch.sum(vid_boolean_mask, dim=1)
+            max_v_num = torch.max(video_num_count).item()
+
+            batch_feats = torch.zeros(0, max_v_num, self.d_model).to(device)
+            vd_times = torch.zeros(0, max_v_num).to(device)
+            hetero_graphs = []
+            node_embs = []
+            graph_densitys = []
+
+            for i in range(batch_len):
+                vid_feat = vid_feats[i][vid_boolean_mask[i]].unsqueeze(0)
+                vid_feat = torch.cat([vid_feat, torch.zeros(1, max_v_num - vid_feat.shape[1], self.d_model).to(device)], dim=1)
+                batch_feats = torch.cat([batch_feats, vid_feat], dim=0)
+
+                video_time = time_idx[i][token_type_ids[i] == torch.tensor(0, device=device)]
+                video_time = video_time[:video_num_count[i]]
+                video_time = torch.cat([video_time, torch.zeros(max_v_num - video_time.shape[0], device=device)]).unsqueeze(0)
+                vd_times = torch.cat([vd_times, video_time], dim=0)
+
+                graph_label = {
+                    "dia": torch.zeros(0, device=device),
+                    "video": vid_targets[i][vid_boolean_mask[i]],
+                    "video_features": vid_feats[i][vid_boolean_mask[i]].detach().cpu(),
+                }
+                if isinstance(edge_dict, dict) and "shot_ids" in edge_dict:
+                    graph_label["shot_ids"] = edge_dict["shot_ids"][i][:video_num_count[i]].detach().cpu()
+                hetero_graph, _, density = load_graph(
+                    video_name[i], edge_dict, graph_label,
+                    zeta_v=self.zeta_v,
+                    zeta_t=self.zeta_t,
+                    shot_constraint=self.shot_constraint,
+                    target_graph_density=self.target_graph_density,
+                )
+                hetero_graphs.append(hetero_graph.to(device))
+                graph_densitys.append(density)
+
+            batch_feats = self.pos_decoder(batch_feats, idx_to_choose=vd_times)
+            batch_feats += self.emb(torch.zeros(batch_len, max_v_num, dtype=torch.long, device=device))
+
+            src_attn_mask = torch.zeros((batch_len, max_v_num, max_v_num), dtype=torch.bool, device=device)
+            for i in range(batch_len):
+                video_num = video_num_count[i].item()
+                src_attn_mask[i, :video_num, :video_num] = True
+            src_attn_mask = torch.repeat_interleave(src_attn_mask, self.num_heads, dim=0)
+            tf_out = self.transformer_decoder(batch_feats, mask=src_attn_mask.logical_not())
+
+            batch_tfv_feats = torch.zeros(0, max_v_num, self.d_model).to(device)
+            for i in range(batch_len):
+                v_feat = tf_out[i][:video_num_count[i]]
+                v_feat = torch.cat([v_feat, torch.zeros(max_v_num - v_feat.shape[0], self.d_model).to(device)], dim=0)
+                batch_tfv_feats = torch.cat([batch_tfv_feats, v_feat.unsqueeze(0)], dim=0)
+                node_embs.append({
+                    "dia": torch.zeros(0, self.d_model, device=device),
+                    "video": v_feat[:video_num_count[i]],
+                })
+
+            batch_gv_feats = torch.zeros(0, max_v_num, self.d_model).to(device)
+            for i in range(batch_len):
+                graph_out = self.model_RGAT(hetero_graphs[i], node_embs[i])
+                video_graph_out = graph_out["video"]
+                v_feat = torch.cat([video_graph_out, torch.zeros(max_v_num - video_graph_out.shape[0], self.d_model).to(device)], dim=0)
+                batch_gv_feats = torch.cat([batch_gv_feats, v_feat.unsqueeze(0)], dim=0)
+
+            hv = batch_gv_feats
+            v_out = self.v_FFN(hv).squeeze(dim=-1)
+            return v_out, None, None, hv, hetero_graphs
 
         dia_num_count = torch.sum(dia_boolean_mask, dim=1)
         video_num_count = torch.sum(vid_boolean_mask, dim=1)

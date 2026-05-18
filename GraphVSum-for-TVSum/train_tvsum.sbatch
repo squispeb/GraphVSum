@@ -30,4 +30,4 @@ echo "Python: $VENV_PYTHON"
 "$VENV_PYTHON" -u -m trainer \
   wandb.logging=False \
   gpus=[0] \
-  wandb.model_name=TVSum-paper-hparams
+  wandb.model_name=TVSum-paper-graph-eval

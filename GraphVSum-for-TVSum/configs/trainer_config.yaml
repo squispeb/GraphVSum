@@ -15,6 +15,8 @@ split_type: ../data/TVSum/splits.yml
 split_id: [0,1,2,3,4]
 eval_test: True
 mode: training # training, inference
+tvsum_eval: True
+summary_budget: 0.15
 
 model_config_path: "${ckpt_path}/${wandb.model_name}/${wandb.model_name}_config.yaml"
 state_dict_path: "${ckpt_path}/${wandb.model_name}/${wandb.model_name}_vidAP.pt"
@@ -26,7 +28,7 @@ num-workers: 0
 # To run specifics
 verbose: True
 seed: 0
-epochs: 100
+epochs: 200
 batch_size: 4
 lr: 0.001
 lr_scheduler: 'none' # 'cyclic', 'onecycle', or 'none'
@@ -73,7 +75,7 @@ enable_encoder: True
 encoder_type: trm # max, avg, trm
 enable_dia_encoder: False
 dia_encoder_type: avg # max, avg, trm
-enable_decoder: False
+enable_decoder: True
 dec_layers: 1    
 enc_layers: 1
 dec_num_heads: 1

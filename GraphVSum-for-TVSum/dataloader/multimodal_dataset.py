@@ -15,14 +15,67 @@ def load_alignment_reference():
     return None
 
 
-def load_graph(video_name, edge_dict, graph_label):
+def _cosine_edges(features, threshold, shot_ids=None, shot_constraint=False,
+                  target_density=None):
+    num_nodes = int(features.shape[0])
+    if num_nodes == 0:
+        empty = torch.zeros(0, dtype=torch.int64)
+        return empty, empty, 0.0
+
+    feats = torch.as_tensor(features, dtype=torch.float32)
+    feats = torch.nn.functional.normalize(feats, p=2, dim=-1)
+    sim = feats @ feats.t()
+    eye = torch.eye(num_nodes, dtype=torch.bool)
+    candidate = sim >= float(threshold)
+
+    if shot_constraint and shot_ids is not None:
+        shot_ids = torch.as_tensor(shot_ids, dtype=torch.long)
+        same_shot = shot_ids[:, None] == shot_ids[None, :]
+        candidate = candidate & (~same_shot | eye)
+
+    candidate = candidate | eye
+    off_diag = candidate & ~eye
+    if target_density is not None and num_nodes > 1:
+        max_edges = int(round(float(target_density) * num_nodes * (num_nodes - 1)))
+        edge_count = int(off_diag.sum().item())
+        if 0 < max_edges < edge_count:
+            scores = sim.masked_fill(~off_diag, -2.0).flatten()
+            keep_idx = torch.topk(scores, k=max_edges).indices
+            pruned = torch.zeros(num_nodes * num_nodes, dtype=torch.bool)
+            pruned[keep_idx] = True
+            off_diag = pruned.view(num_nodes, num_nodes)
+            candidate = off_diag | eye
+
+    src, dst = torch.nonzero(candidate, as_tuple=True)
+    density = float(off_diag.float().mean().item()) if num_nodes > 1 else 0.0
+    return src.to(torch.int64), dst.to(torch.int64), density
+
+
+def load_graph(video_name, edge_dict, graph_label, zeta_v=0.95, zeta_t=0.97,
+               shot_constraint=False, target_graph_density=None):
     num_dia = int(graph_label["dia"].shape[0])
     num_video = int(graph_label["video"].shape[0])
 
     dia_idx = torch.arange(num_dia, dtype=torch.int64)
-    video_idx = torch.arange(num_video, dtype=torch.int64)
-    dia_src = dia_dst = dia_idx
-    video_src = video_dst = video_idx
+    if "dia_features" in graph_label and num_dia:
+        dia_src, dia_dst, dia_density = _cosine_edges(
+            graph_label["dia_features"], zeta_t, target_density=target_graph_density
+        )
+    else:
+        dia_src = dia_dst = dia_idx
+        dia_density = 0.0
+
+    if "video_features" in graph_label and num_video:
+        video_src, video_dst, video_density = _cosine_edges(
+            graph_label["video_features"], zeta_v,
+            shot_ids=graph_label.get("shot_ids"),
+            shot_constraint=shot_constraint,
+            target_density=target_graph_density,
+        )
+    else:
+        video_idx = torch.arange(num_video, dtype=torch.int64)
+        video_src = video_dst = video_idx
+        video_density = 0.0
 
     if num_dia and num_video:
         aligned_video = torch.clamp((dia_idx.float() * num_video / num_dia).long(), max=num_video - 1)
@@ -42,7 +95,11 @@ def load_graph(video_name, edge_dict, graph_label):
     dv_time_align = torch.zeros((num_dia, num_video), dtype=torch.bool)
     if num_dia and num_video:
         dv_time_align[aligned_dia, aligned_video] = True
-    density = float(dv_time_align.float().mean().item()) if num_dia and num_video else 0.0
+    if num_dia and num_video:
+        align_density = float(dv_time_align.float().mean().item())
+        density = float(np.mean([video_density, dia_density, align_density]))
+    else:
+        density = video_density if num_video else dia_density
     return graph, dv_time_align, density
 
 
@@ -74,11 +131,19 @@ class MultiModalDataset(Dataset):
             group = h5[key]
             video = np.asarray(group["features"][:], dtype=np.float32)
             video_labels = np.asarray(group["gtsummary"][:], dtype=np.float32)
+            change_points = np.asarray(group["change_points"][:], dtype=np.int64)
+            n_frame_per_seg = np.asarray(group["n_frame_per_seg"][:], dtype=np.int64)
+            picks = np.asarray(group["picks"][:], dtype=np.int64)
+            user_summary = np.asarray(group["user_summary"][:], dtype=np.float32)
+            n_frames = int(np.asarray(group["n_frames"][()]))
 
         text = np.asarray(self.text_features[key], dtype=np.float32)
         video_len = min(video.shape[0], video_labels.shape[0])
         video = video[:video_len]
         video_labels = video_labels[:video_len]
+        picks = picks[:video_len]
+        shot_ids = np.searchsorted(change_points[:, 1], picks, side="left")
+        shot_ids = np.clip(shot_ids, 0, max(len(change_points) - 1, 0))
 
         text_len = text.shape[0]
         if text_len:
@@ -98,6 +163,12 @@ class MultiModalDataset(Dataset):
                 "vid_mask": torch.ones(video_len, 1),
                 "vid_idx": torch.arange(video_len).unsqueeze(1),
                 "labels": video_labels,
+                "shot_ids": torch.from_numpy(shot_ids.astype(np.int64)),
+                "change_points": torch.from_numpy(change_points),
+                "n_frame_per_seg": torch.from_numpy(n_frame_per_seg),
+                "picks": torch.from_numpy(picks.astype(np.int64)),
+                "user_summary": torch.from_numpy(user_summary),
+                "n_frames": torch.tensor(n_frames, dtype=torch.long),
             },
             {
                 "dia_enc": text,
@@ -131,6 +202,14 @@ class MultiModalDataset(Dataset):
                 out[i, : item.shape[0]] = item
             return out
 
+        def pad_user_summary(items, value=0):
+            max_users = max(x.shape[0] for x in items)
+            max_frames = max(x.shape[1] for x in items)
+            out = torch.full((len(items), max_users, max_frames), value, dtype=items[0].dtype)
+            for i, item in enumerate(items):
+                out[i, : item.shape[0], : item.shape[1]] = item
+            return out
+
         video_dicts, text_dicts = [], []
         names, bin_indices, token_types, masks, group_idxs, subgroup_lens, labels = [], [], [], [], [], [], []
         for feat_dict, name, bin_idx, token_type, mask, group_idx, subgroup_len, label in batch:
@@ -150,6 +229,12 @@ class MultiModalDataset(Dataset):
             "vid_mask": pad_nd([x["vid_mask"] for x in video_dicts]),
             "vid_idx": pad_nd([x["vid_idx"] for x in video_dicts]),
             "labels": pad_1d([x["labels"] for x in video_dicts]),
+            "shot_ids": pad_1d([x["shot_ids"] for x in video_dicts], value=-1),
+            "change_points": pad_nd([x["change_points"] for x in video_dicts], value=-1),
+            "n_frame_per_seg": pad_1d([x["n_frame_per_seg"] for x in video_dicts]),
+            "picks": pad_1d([x["picks"] for x in video_dicts], value=-1),
+            "user_summary": pad_user_summary([x["user_summary"] for x in video_dicts]),
+            "n_frames": torch.stack([x["n_frames"] for x in video_dicts]),
         }
         text_batch = {
             "dia_enc": pad_nd([x["dia_enc"] for x in text_dicts]),

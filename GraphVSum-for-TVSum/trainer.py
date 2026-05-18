@@ -33,6 +33,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
 # from thop import profile
 
 from utils.metrics import getScores
+from utils.metrics import getTVSumScores
 from utils.model_config import get_model
 from dataloader.multimodal_dataset import MultiModalDataset
 from utils.general_utils import (ParseEPS, seed_everything, load_yaml, save_model)
@@ -375,8 +376,9 @@ class Trainer(object):
             raise ValueError(f"Invalid modality (={self.modality}).")
         
         if self.modality != "dia":
+            long_keys = {"shot_ids", "change_points", "n_frame_per_seg", "picks", "n_frames"}
             vid_feat_dict = {
-                k: v.to(self.device).bool() if "mask" in k else v.to(self.device).long() if k.endswith("_idx") else v.to(self.device).float()
+                k: v.to(self.device).bool() if "mask" in k else v.to(self.device).long() if k.endswith("_idx") or k in long_keys else v.to(self.device).float()
                 for k, v in vid_feat_dict.items()
             }
             # extract video ground truth
@@ -404,10 +406,12 @@ class Trainer(object):
 
         # forward pass
         if self.cfg['ours_model']:
-
+            edge_payload = dict(edge_dict) if isinstance(edge_dict, dict) else edge_dict
+            if isinstance(edge_payload, dict) and self.modality != "dia" and "shot_ids" in vid_feat_dict:
+                edge_payload["shot_ids"] = vid_feat_dict["shot_ids"]
 
             video_yhat, dia_yhat, hd, hv, hetero_graphs = self.model(vid_feat_dict, dia_feat_dict, video_name, bin_indices,
-                                                    token_type, group_idx, mask, subgroup_len, edge_dict,
+                                                    token_type, group_idx, mask, subgroup_len, edge_payload,
                                                     dia_targets, dia_boolean_mask, vid_targets, vid_boolean_mask)        
 
 
@@ -468,6 +472,7 @@ class Trainer(object):
             vid_y_true, dia_y_true, vid_y_pred, dia_y_pred = [], [], [], []
         else:
             y_true_epoch, y_pred_epoch = [], []
+            tvsum_metadata = []
         with torch.no_grad():
             for _, data_batch in enumerate(tqdm(val_dl, disable=self.cfg["wandb"]["logging"])):
                 if self.modality == 'both':
@@ -481,10 +486,24 @@ class Trainer(object):
                     loss, yhat, targets = self.transformANDforward(data_batch, edge_dict)
                     y_pred_epoch.extend(yhat)
                     y_true_epoch.extend(targets)
+                    if self.cfg.get("tvsum_eval", False) and self.modality == "vid":
+                        feat_dict = data_batch[0]
+                        vid_batch = feat_dict[0] if isinstance(feat_dict, (list, tuple)) else feat_dict
+                        for i in range(len(yhat)):
+                            tvsum_metadata.append({
+                                "change_points": vid_batch["change_points"][i].detach().cpu().numpy(),
+                                "n_frame_per_seg": vid_batch["n_frame_per_seg"][i].detach().cpu().numpy(),
+                                "picks": vid_batch["picks"][i].detach().cpu().numpy(),
+                                "user_summary": vid_batch["user_summary"][i].detach().cpu().numpy(),
+                                "n_frames": int(vid_batch["n_frames"][i].item()),
+                            })
                 eval_loss += loss.item()
         if self.modality == 'both':
             scores = {'vid': [*getScores(vid_y_true, vid_y_pred)],
                       'dia': [*getScores(dia_y_true, dia_y_pred)]}
+        elif self.cfg.get("tvsum_eval", False) and self.modality == "vid":
+            scores = [*getTVSumScores(y_true_epoch, y_pred_epoch, tvsum_metadata,
+                                      budget_ratio=self.cfg.get("summary_budget", 0.15))]
         else:
             scores = [*getScores(y_true_epoch, y_pred_epoch)]
         return eval_loss/len(val_dl), scores
