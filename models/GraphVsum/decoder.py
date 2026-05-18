@@ -329,6 +329,8 @@ class decoder(nn.Module):
             graph_label = {}
             graph_label['dia'] = dia_targets[i][dia_boolean_mask[i]]
             graph_label['video'] = vid_targets[i][vid_boolean_mask[i]]
+            graph_label['dia_feat'] = dia_feat.squeeze(0)
+            graph_label['video_feat'] = vid_feat.squeeze(0)
             hetero_graph, dv_time_align, density = load_graph(video_name[i], edge_dict, graph_label)
             hetero_graph = hetero_graph.to(device)
             hetero_graphs.append(hetero_graph)

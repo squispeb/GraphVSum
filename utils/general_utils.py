@@ -135,10 +135,11 @@ class ParseEPS(object):
         
     @staticmethod
     def convert2Yamlable(dct: Dict) -> Dict:
-        dct["train"] = [ep.as_posix() for ep in dct["train"]]
-        dct["val"] = [ep.as_posix() for ep in dct["val"]]
-        dct["test"] = [ep.as_posix() for ep in dct["test"]]
-        dct["human"] = [ep.as_posix() for ep in dct["human"]]
+        dct["train"] = [ep.as_posix() if isinstance(ep, Path) else str(ep) for ep in dct["train"]]
+        dct["val"] = [ep.as_posix() if isinstance(ep, Path) else str(ep) for ep in dct["val"]]
+        dct["test"] = [ep.as_posix() if isinstance(ep, Path) else str(ep) for ep in dct["test"]]
+        if "human" in dct:
+            dct["human"] = [ep.as_posix() if isinstance(ep, Path) else str(ep) for ep in dct["human"]]
         return dct
 
     @staticmethod

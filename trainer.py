@@ -95,8 +95,10 @@ class Trainer(object):
         # print(f"{cfg['series']}'s Modality = {modality} is selected!\n")
 
         # Initialize BCE loss function with positive weights
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to(self.device))
-        # self.criterion = FocalLoss()
+        if cfg.get('loss', {}).get('type') == 'focal':
+            self.criterion = FocalLoss(alpha=cfg.loss.alpha, gamma=cfg.loss.gamma)
+        else:
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to(self.device))
 
         # Scheduler and Optimizer
         if cfg['mode'] == 'training':
@@ -494,7 +496,7 @@ class Trainer(object):
         train_dl = self.prepare_data(mode="train")
         val_dl = self.prepare_data(mode="val")
         # training starts
-        edge_dict = load_edge_dict()
+        edge_dict = load_edge_dict(self.cfg)
         alignment_ref = load_alignment_reference()
 
         for epoch in range(self.epochs):
@@ -668,8 +670,11 @@ class calc_loss_class(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         modality = cfg['modality']
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to(device))
+        if cfg.get('loss', {}).get('type') == 'focal':
+            self.criterion = FocalLoss(alpha=cfg.loss.alpha, gamma=cfg.loss.gamma)
+        else:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg[f'{cfg.series}_{modality}']]).to(device))
 
 
     def forward(self, yhat: torch.Tensor, yhat_mask: torch.Tensor,

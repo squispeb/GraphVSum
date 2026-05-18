@@ -24,9 +24,9 @@ num-workers: 10
 # To run specifics
 verbose: True
 seed: 0
-epochs: 40
-batch_size: 4
-lr: 0.0001
+epochs: 45
+batch_size: 64
+lr: 0.001
 lr_scheduler: 'onecycle' # 'cyclic' or 'onecycle'
 weight_decay: 0.001
 amsgrad: False # To use AMSGrad optimization
@@ -103,3 +103,13 @@ wandb:
     sweeps: False
     sweep_id: ""
     sweep_agent_run_count: 0
+
+loss:
+    type: focal
+    alpha: 0.25
+    gamma: 2
+
+graph:
+    zeta_v: 0.95
+    zeta_t: 0.97
+    shot_constraint: True
